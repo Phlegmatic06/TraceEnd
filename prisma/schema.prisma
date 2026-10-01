@@ -1,0 +1,464 @@
+// ──────────────────────────────────────────────────────────────
+// TraceEnd — Prisma Schema
+// Personal Attack Surface Management & Security Remediation
+// ──────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── User ─────────────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  avatarUrl     String?
+  emailVerified DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  workspaces    WorkspaceMember[]
+  activityEvents ActivityEvent[]
+  accounts      Account[]
+  sessions      Session[]
+
+  @@index([email])
+  @@map("users")
+}
+
+// ─── NextAuth ─────────────────────────────────────────────────
+
+model Account {
+  id                 String  @id @default(cuid())
+  userId             String
+  type               String
+  provider           String
+  providerAccountId  String
+  refresh_token      String?  @db.Text
+  access_token       String?  @db.Text
+  expires_at         Int?
+  token_type         String?
+  scope              String?
+  id_token           String?  @db.Text
+  session_state      String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+
+// ─── Workspace ────────────────────────────────────────────────
+
+model Workspace {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members        WorkspaceMember[]
+  assets         Asset[]
+  scans          Scan[]
+  findings       Finding[]
+  activityEvents ActivityEvent[]
+  integrations   Integration[]
+  notificationPreferences NotificationPreference[]
+
+  @@index([slug])
+  @@map("workspaces")
+}
+
+model WorkspaceMember {
+  id          String          @id @default(cuid())
+  role        WorkspaceRole   @default(MEMBER)
+  joinedAt    DateTime        @default(now())
+
+  userId      String
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspaceId String
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId])
+  @@index([workspaceId])
+  @@map("workspace_members")
+}
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+// ─── Asset ────────────────────────────────────────────────────
+
+model Asset {
+  id                 String              @id @default(cuid())
+  type               AssetType
+  identifier         String              // email, domain, url, github handle, etc.
+  displayName        String
+  verificationStatus VerificationStatus  @default(UNVERIFIED)
+  status             AssetStatus         @default(ACTIVE)
+  metadata           Json?               // flexible KV store per asset type
+  lastScannedAt      DateTime?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  workspaceId        String
+  workspace          Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  findings           Finding[]
+  scans              Scan[]
+  activityEvents     ActivityEvent[]
+
+  @@index([workspaceId, type])
+  @@index([workspaceId, status])
+  @@index([identifier])
+  @@map("assets")
+}
+
+enum AssetType {
+  EMAIL
+  USERNAME
+  DOMAIN
+  WEBSITE
+  GITHUB_ACCOUNT
+  GITHUB_REPOSITORY
+  IMAGE
+  OTHER
+}
+
+enum VerificationStatus {
+  UNVERIFIED
+  PENDING
+  VERIFIED
+  FAILED
+}
+
+enum AssetStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+// ─── Scan ─────────────────────────────────────────────────────
+
+model Scan {
+  id             String      @id @default(cuid())
+  type           ScanType
+  status         ScanStatus  @default(QUEUED)
+  startedAt      DateTime?
+  completedAt    DateTime?
+  findingsCount  Int         @default(0)
+  metadata       Json?       // scanner config, version, etc.
+  errorMessage   String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  workspaceId    String
+  workspace      Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assetId        String
+  asset          Asset       @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  scanJobs       ScanJob[]
+  findings       Finding[]
+  activityEvents ActivityEvent[]
+
+  @@index([workspaceId, status])
+  @@index([assetId])
+  @@index([createdAt])
+  @@map("scans")
+}
+
+enum ScanType {
+  FULL
+  BREACH_CHECK
+  DOMAIN_SECURITY
+  WEB_SECURITY
+  GITHUB_SECRETS
+  METADATA_ANALYSIS
+  QUICK
+}
+
+enum ScanStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+// ─── ScanJob ──────────────────────────────────────────────────
+// Individual units of work within a scan. Future workers pick
+// jobs from a queue and process them independently.
+
+model ScanJob {
+  id           String        @id @default(cuid())
+  jobType      String        // scanner identifier, e.g. "breach_hibp", "dns_dmarc"
+  status       ScanJobStatus @default(PENDING)
+  priority     Int           @default(0)
+  payload      Json?         // input data for the scanner
+  result       Json?         // raw scanner output
+  errorMessage String?
+  attempts     Int           @default(0)
+  maxAttempts  Int           @default(3)
+  startedAt    DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  scanId       String
+  scan         Scan          @relation(fields: [scanId], references: [id], onDelete: Cascade)
+
+  @@index([scanId])
+  @@index([status, priority])
+  @@map("scan_jobs")
+}
+
+enum ScanJobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+// ─── Finding ──────────────────────────────────────────────────
+
+model Finding {
+  id                      String          @id @default(cuid())
+  title                   String
+  slug                    String          // machine identifier, e.g. "api-credential-exposure"
+  category                FindingCategory
+  severity                Severity
+  status                  FindingStatus   @default(OPEN)
+  confidence              Confidence      @default(HIGH)
+  description             String          @db.Text
+  plainEnglishExplanation String          @db.Text
+  technicalDetails        String?         @db.Text
+  potentialImpact         String          @db.Text
+  remediationSummary      String?         @db.Text
+  evidence                Json?           // structured evidence data
+  metadata                Json?           // additional scanner-specific data
+  firstDetectedAt         DateTime        @default(now())
+  lastDetectedAt          DateTime        @default(now())
+  resolvedAt              DateTime?
+  createdAt               DateTime        @default(now())
+  updatedAt               DateTime        @updatedAt
+
+  assetId                 String
+  asset                   Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  scanId                  String?
+  scan                    Scan?           @relation(fields: [scanId], references: [id], onDelete: SetNull)
+  workspaceId             String
+  workspace               Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  remediations            Remediation[]
+  activityEvents          ActivityEvent[]
+
+  @@index([workspaceId, severity, status])
+  @@index([assetId])
+  @@index([scanId])
+  @@index([slug])
+  @@index([category])
+  @@index([createdAt])
+  @@map("findings")
+}
+
+enum FindingCategory {
+  SECRETS
+  BREACH_EXPOSURE
+  DOMAIN_SECURITY
+  WEB_SECURITY
+  TLS_SECURITY
+  HEADER_SECURITY
+  DIGITAL_FOOTPRINT
+  IMAGE_METADATA
+  ACCOUNT_SECURITY
+  CONFIGURATION
+  OTHER
+}
+
+enum Severity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+  INFORMATIONAL
+}
+
+enum FindingStatus {
+  OPEN
+  IN_PROGRESS
+  MITIGATED
+  RESOLVED
+  ACCEPTED_RISK
+  FALSE_POSITIVE
+}
+
+enum Confidence {
+  CONFIRMED
+  HIGH
+  MEDIUM
+  LOW
+  UNVERIFIED
+}
+
+// ─── Remediation ──────────────────────────────────────────────
+
+model Remediation {
+  id               String              @id @default(cuid())
+  environment      String?             // "nginx", "apache", "cloudflare", "vercel", etc.
+  estimatedEffort  RemediationEffort   @default(MODERATE)
+  status           RemediationStatus   @default(NOT_STARTED)
+  notes            String?             @db.Text
+  startedAt        DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  findingId        String
+  finding          Finding             @relation(fields: [findingId], references: [id], onDelete: Cascade)
+
+  steps            RemediationStep[]
+
+  @@index([findingId])
+  @@map("remediations")
+}
+
+enum RemediationEffort {
+  TRIVIAL
+  LOW
+  MODERATE
+  HIGH
+  COMPLEX
+}
+
+enum RemediationStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  VERIFIED
+  SKIPPED
+}
+
+model RemediationStep {
+  id              String                @id @default(cuid())
+  order           Int
+  title           String
+  explanation     String                @db.Text
+  codeSnippet     String?               @db.Text
+  codeLanguage    String?               // "bash", "nginx", "yaml", etc.
+  docUrl          String?
+  status          RemediationStepStatus @default(PENDING)
+  completedAt     DateTime?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  remediationId   String
+  remediation     Remediation           @relation(fields: [remediationId], references: [id], onDelete: Cascade)
+
+  @@index([remediationId])
+  @@map("remediation_steps")
+}
+
+enum RemediationStepStatus {
+  PENDING
+  COMPLETED
+  SKIPPED
+}
+
+// ─── Activity / Audit Log ─────────────────────────────────────
+
+model ActivityEvent {
+  id          String       @id @default(cuid())
+  action      String       // e.g. "finding.created", "scan.started", "asset.added"
+  description String
+  metadata    Json?
+  createdAt   DateTime     @default(now())
+
+  userId      String?
+  user        User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  workspaceId String
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assetId     String?
+  asset       Asset?       @relation(fields: [assetId], references: [id], onDelete: SetNull)
+  findingId   String?
+  finding     Finding?     @relation(fields: [findingId], references: [id], onDelete: SetNull)
+  scanId      String?
+  scan        Scan?        @relation(fields: [scanId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, createdAt])
+  @@index([action])
+  @@map("activity_events")
+}
+
+// ─── Integration ──────────────────────────────────────────────
+
+model Integration {
+  id          String            @id @default(cuid())
+  type        IntegrationType
+  status      IntegrationStatus @default(INACTIVE)
+  config      Json?             // encrypted config reference, never raw secrets
+  metadata    Json?
+  lastSyncAt  DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  workspaceId String
+  workspace   Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@map("integrations")
+}
+
+enum IntegrationType {
+  GITHUB
+  GITLAB
+  SLACK
+  EMAIL
+  WEBHOOK
+  OTHER
+}
+
+enum IntegrationStatus {
+  ACTIVE
+  INACTIVE
+  ERROR
+}
+
+// ─── Notification Preferences ─────────────────────────────────
+
+model NotificationPreference {
+  id          String   @id @default(cuid())
+  channel     String   // "email", "slack", "webhook"
+  event       String   // "finding.critical", "scan.completed"
+  enabled     Boolean  @default(true)
+  config      Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@map("notification_preferences")
+}

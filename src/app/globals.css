@@ -1,0 +1,111 @@
+@import "tailwindcss";
+
+/* ──────────────────────────────────────────────────────────────
+   TraceEnd — Design System
+   Professional cybersecurity platform — restrained, information-dense
+   ────────────────────────────────────────────────────────────── */
+
+@theme {
+  /* ─── Neutrals ─────────────────────────────────────────── */
+  --color-gray-25: #fcfcfd;
+  --color-gray-50: #f8f9fa;
+  --color-gray-100: #f1f3f5;
+  --color-gray-200: #e9ecef;
+  --color-gray-300: #dee2e6;
+  --color-gray-400: #adb5bd;
+  --color-gray-500: #868e96;
+  --color-gray-600: #5c636a;
+  --color-gray-700: #3d4349;
+  --color-gray-800: #2b3035;
+  --color-gray-900: #1a1d21;
+  --color-gray-950: #0f1114;
+
+  /* ─── Severity ─────────────────────────────────────────── */
+  --color-severity-critical: #dc2626;
+  --color-severity-critical-bg: #fef2f2;
+  --color-severity-high: #ea580c;
+  --color-severity-high-bg: #fff7ed;
+  --color-severity-medium: #d97706;
+  --color-severity-medium-bg: #fffbeb;
+  --color-severity-low: #6b7280;
+  --color-severity-low-bg: #f9fafb;
+  --color-severity-info: #6b7280;
+  --color-severity-info-bg: #f9fafb;
+
+  /* ─── Status ───────────────────────────────────────────── */
+  --color-status-success: #16a34a;
+  --color-status-success-bg: #f0fdf4;
+  --color-status-warning: #d97706;
+  --color-status-warning-bg: #fffbeb;
+  --color-status-danger: #dc2626;
+  --color-status-danger-bg: #fef2f2;
+  --color-status-info: #2563eb;
+  --color-status-info-bg: #eff6ff;
+
+  /* ─── Accent ───────────────────────────────────────────── */
+  --color-accent: #2563eb;
+  --color-accent-hover: #1d4ed8;
+  --color-accent-muted: #dbeafe;
+
+  /* ─── Font ─────────────────────────────────────────────── */
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", "SF Mono", Menlo, monospace;
+}
+
+/* ─── CSS Variables for runtime reference ───────────────── */
+:root {
+  --severity-critical: #dc2626;
+  --severity-high: #ea580c;
+  --severity-medium: #d97706;
+  --severity-low: #6b7280;
+  --severity-info: #6b7280;
+}
+
+/* ─── Base ───────────────────────────────────────────────── */
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  font-family: var(--font-sans);
+  color: var(--color-gray-900);
+  background-color: var(--color-gray-50);
+}
+
+/* ─── Focus ──────────────────────────────────────────────── */
+*:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* ─── Reduced Motion ─────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ─── Scrollbar (minimal) ────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-gray-300);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-gray-400);
+}
