@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getDefaultWorkspace } from '@/lib/services/workspace';
 import { updateFindingStatusSchema } from '@/lib/validators';
+import { validateFindingTransition } from '@/lib/services/state-machine';
 import { toErrorResponse } from '@/lib/errors';
 import { logger } from '@/lib/logger';
 
@@ -47,6 +48,8 @@ export async function PATCH(
         { status: 404 }
       );
     }
+
+    validateFindingTransition(finding.status as any, parsed.data.status);
 
     const updated = await db.finding.update({
       where: { id },

@@ -5,6 +5,7 @@ import { FindingCategory, Severity, Confidence } from '@/generated/prisma/client
 
 export const checkEmailSecurity: DomainCheck = async ({ domain }: DomainCheckContext): Promise<DomainCheckResult> => {
   const findings: ScannerFinding[] = [];
+  const passedChecks: string[] = [];
   const remediations = new Map<string, ScannerRemediationTemplate[]>();
 
   // 1. Check SPF Record (DNS)
@@ -48,7 +49,9 @@ export const checkEmailSecurity: DomainCheck = async ({ domain }: DomainCheckCon
         potentialImpact: 'Email spoofing protection may fail, allowing attackers to spoof your domain.',
         remediationSummary: 'Merge multiple SPF records into a single record containing all allowed senders.',
       });
+      passedChecks.push('missing-spf-record');
     } else {
+      passedChecks.push('missing-spf-record', 'multiple-spf-records');
       const spfRecord = spfRecords[0]?.join('') || '';
       if (spfRecord.includes('+all')) {
         findings.push({
@@ -63,10 +66,25 @@ export const checkEmailSecurity: DomainCheck = async ({ domain }: DomainCheckCon
           potentialImpact: 'Attackers can easily spoof your email domain in phishing campaigns.',
           remediationSummary: 'Change the SPF record to end with ~all (softfail) or -all (hardfail).',
         });
+      } else {
+        passedChecks.push('permissive-spf-policy');
       }
     }
-  } catch (error) {
-    // Ignore if DNS resolution fails completely
+  } catch (error: any) {
+    if (error.code === 'ENODATA' || error.code === 'ENOTFOUND') {
+      findings.push({
+        title: 'Missing SPF Record',
+        slug: 'missing-spf-record',
+        category: FindingCategory.DOMAIN_SECURITY,
+        severity: Severity.HIGH,
+        confidence: Confidence.CONFIRMED,
+        description: `The domain ${domain} does not have a valid SPF (Sender Policy Framework) record.`,
+        plainEnglishExplanation: 'Your domain is missing a security record that prevents attackers from sending spoofed emails on your behalf.',
+        technicalDetails: 'No TXT record was found.',
+        potentialImpact: 'Attackers can spoof your email domain in phishing campaigns, damaging your reputation.',
+        remediationSummary: 'Add a TXT record to your DNS settings with your authorized mail servers.',
+      });
+    }
   }
 
   // 2. Check DMARC Record
@@ -98,6 +116,7 @@ export const checkEmailSecurity: DomainCheck = async ({ domain }: DomainCheckCon
         }]
       }]);
     } else {
+      passedChecks.push('missing-dmarc-record');
       const dmarcRecord = dmarcRecords[0]?.join('') || '';
       if (dmarcRecord.includes('p=none')) {
         findings.push({
@@ -112,23 +131,26 @@ export const checkEmailSecurity: DomainCheck = async ({ domain }: DomainCheckCon
           potentialImpact: 'Spoofed emails will still be delivered. It provides monitoring rather than enforcement.',
           remediationSummary: 'Once you are confident legitimate mail is passing SPF and DKIM, upgrade the policy to p=quarantine or p=reject.',
         });
+      } else {
+        passedChecks.push('dmarc-policy-none');
       }
     }
-  } catch (error) {
-    // Expected to fail if no _dmarc record exists
-    findings.push({
-      title: 'Missing DMARC Record',
-      slug: 'missing-dmarc-record',
-      category: FindingCategory.DOMAIN_SECURITY,
-      severity: Severity.MEDIUM,
-      confidence: Confidence.CONFIRMED,
-      description: `The domain ${domain} does not have a DMARC record.`,
-      plainEnglishExplanation: 'Your domain lacks DMARC, a system that tells email providers what to do when they receive spoofed emails pretending to be from you.',
-      technicalDetails: 'No TXT record was found at _dmarc.' + domain,
-      potentialImpact: 'Email providers will not block spoofed emails from your domain.',
-      remediationSummary: 'Add a DMARC TXT record to your DNS settings.',
-    });
+  } catch (error: any) {
+    if (error.code === 'ENODATA' || error.code === 'ENOTFOUND') {
+      findings.push({
+        title: 'Missing DMARC Record',
+        slug: 'missing-dmarc-record',
+        category: FindingCategory.DOMAIN_SECURITY,
+        severity: Severity.MEDIUM,
+        confidence: Confidence.CONFIRMED,
+        description: `The domain ${domain} does not have a DMARC record.`,
+        plainEnglishExplanation: 'Your domain lacks DMARC, a system that tells email providers what to do when they receive spoofed emails pretending to be from you.',
+        technicalDetails: 'No TXT record was found at _dmarc.' + domain,
+        potentialImpact: 'Email providers will not block spoofed emails from your domain.',
+        remediationSummary: 'Add a DMARC TXT record to your DNS settings.',
+      });
+    }
   }
 
-  return { findings, remediations };
+  return { findings, passedChecks, remediations };
 };

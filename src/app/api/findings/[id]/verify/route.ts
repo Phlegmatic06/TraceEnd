@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getDefaultWorkspace } from '@/lib/services/workspace';
+import { validateFindingTransition } from '@/lib/services/state-machine';
 import { toErrorResponse } from '@/lib/errors';
 import { logger } from '@/lib/logger';
-import { scanQueue } from '@/lib/queue';
+import { getScanQueue } from '@/lib/queue';
 import { ScanStatus, ScanJobStatus, ScanType } from '@/generated/prisma/client';
 
 const log = logger.child({ module: 'api/findings/verify' });
@@ -34,6 +35,8 @@ export async function POST(
       );
     }
 
+    validateFindingTransition(finding.status as any, 'IN_PROGRESS');
+
     // Update finding status to IN_PROGRESS for verification
     await db.finding.update({
       where: { id },
@@ -59,6 +62,7 @@ export async function POST(
       },
     });
 
+    const scanQueue = getScanQueue();
     await scanQueue.add('domain-security-baseline', {
       scanId: scan.id,
       scanJobId: scanJob.id,

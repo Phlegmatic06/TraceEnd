@@ -2,6 +2,7 @@ import { ScannerFinding, ScannerRemediationTemplate } from '../../types';
 
 export interface DomainCheckResult {
   findings: ScannerFinding[];
+  passedChecks: string[];
   remediations: Map<string, ScannerRemediationTemplate[]>;
 }
 

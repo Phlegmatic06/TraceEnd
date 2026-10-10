@@ -3,6 +3,7 @@ import { FindingCategory, Severity, Confidence } from '@/generated/prisma/client
 
 export function checkSecurityHeaders(domain: string, headers: Record<string, string>) {
   const findings: ScannerFinding[] = [];
+  const passedChecks: string[] = [];
   const remediations = new Map<string, ScannerRemediationTemplate[]>();
 
   // 1. HSTS
@@ -39,6 +40,8 @@ export function checkSecurityHeaders(domain: string, headers: Record<string, str
         codeSnippet: '{ key: "Strict-Transport-Security", value: "max-age=31536000" }',
       }]
     }]);
+  } else {
+    passedChecks.push('missing-hsts-header');
   }
 
   // 2. Clickjacking (X-Frame-Options or CSP frame-ancestors)
@@ -58,6 +61,8 @@ export function checkSecurityHeaders(domain: string, headers: Record<string, str
       potentialImpact: 'Users could be tricked into performing unintended actions (Clickjacking).',
       remediationSummary: 'Add the X-Frame-Options: DENY or SAMEORIGIN header, or implement a strict Content-Security-Policy.',
     });
+  } else {
+    passedChecks.push('missing-clickjacking-protection');
   }
 
   // 3. X-Content-Type-Options
@@ -74,6 +79,8 @@ export function checkSecurityHeaders(domain: string, headers: Record<string, str
       potentialImpact: 'Malicious user uploads could be interpreted as HTML/JavaScript by the browser (MIME sniffing).',
       remediationSummary: 'Add the X-Content-Type-Options: nosniff header to all responses.',
     });
+  } else {
+    passedChecks.push('missing-x-content-type-options');
   }
 
   // 4. Content-Security-Policy presence
@@ -90,6 +97,8 @@ export function checkSecurityHeaders(domain: string, headers: Record<string, str
       potentialImpact: 'Increases the impact of Cross-Site Scripting (XSS) vulnerabilities if they exist.',
       remediationSummary: 'Implement a Content-Security-Policy to restrict resources.',
     });
+  } else {
+    passedChecks.push('missing-csp');
   }
 
   // 5. Referrer-Policy presence
@@ -106,6 +115,8 @@ export function checkSecurityHeaders(domain: string, headers: Record<string, str
       potentialImpact: 'Sensitive data in URLs could be leaked to third parties.',
       remediationSummary: 'Add a Referrer-Policy header, such as strict-origin-when-cross-origin.',
     });
+  } else {
+    passedChecks.push('missing-referrer-policy');
   }
 
   // 6. Permissions-Policy presence
@@ -122,7 +133,9 @@ export function checkSecurityHeaders(domain: string, headers: Record<string, str
       potentialImpact: 'Third-party scripts could potentially abuse browser features.',
       remediationSummary: 'Add a Permissions-Policy header to disable unused features.',
     });
+  } else {
+    passedChecks.push('missing-permissions-policy');
   }
 
-  return { findings, remediations };
+  return { findings, passedChecks, remediations };
 }

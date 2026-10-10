@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { Worker, Job } from 'bullmq';
 import Redis from 'ioredis';
 import { db } from '../db';
+import { validateScanTransition } from '../services/state-machine';
 import { scannerRegistry } from '../scanners';
 import { ScanJobStatus, ScanStatus, FindingStatus } from '@/generated/prisma/client';
 import { logger } from '../logger';
@@ -17,21 +18,26 @@ export const scanWorker = new Worker('scans', async (job: Job) => {
   log.info(`Processing job ${job.id} for scan ${scanId} (scanner: ${job.name})`);
 
   try {
+    const currentScan = await db.scan.findUniqueOrThrow({ where: { id: scanId } });
+    validateScanTransition(currentScan.status as any, ScanStatus.RUNNING);
+
     await db.scanJob.update({
       where: { id: scanJobId },
       data: { status: ScanJobStatus.PROCESSING, startedAt: new Date() },
     });
-    await db.scan.update({
-      where: { id: scanId },
-      data: { status: ScanStatus.RUNNING, startedAt: new Date() },
-    });
+    if (currentScan.status !== ScanStatus.RUNNING) {
+      await db.scan.update({
+        where: { id: scanId },
+        data: { status: ScanStatus.RUNNING, startedAt: new Date() },
+      });
+    }
 
     const scanner = scannerRegistry.get(job.name);
     if (!scanner) {
       throw new Error(`Scanner ${job.name} not found in registry`);
     }
 
-    const result = await scanner.execute(assetIdentifier, assetType);
+    const result = await scanner.execute(assetIdentifier, assetType, { verifyFindingSlug });
     
     const scan = await db.scan.findUniqueOrThrow({ where: { id: scanId }, select: { workspaceId: true } });
     
@@ -127,77 +133,101 @@ export const scanWorker = new Worker('scans', async (job: Job) => {
       }
     }
 
-    // Auto-resolve findings that were not detected this time
-    if (verifyFindingSlug) {
-      if (!detectedSlugs.has(verifyFindingSlug)) {
-        const verifyTarget = await db.finding.findFirst({
-          where: { assetId, slug: verifyFindingSlug, workspaceId: scan.workspaceId }
-        });
-        if (verifyTarget) {
-          // Only resolve if the scanner actually evaluated the category of this finding!
-          if (!result.evaluatedCategories || result.evaluatedCategories.includes(verifyTarget.category)) {
-            await db.finding.update({
-              where: { id: verifyTarget.id },
-              data: { status: FindingStatus.RESOLVED }
-            });
-            await db.activityEvent.create({
-              data: {
-                action: 'finding.resolved',
-                description: `Finding verified and resolved: ${verifyTarget.title}`,
-                workspaceId: scan.workspaceId,
-                assetId,
-                scanId,
-                findingId: verifyTarget.id,
+    // Auto-resolve findings that were explicitly marked as passed
+    if (result.passedChecks && result.passedChecks.length > 0) {
+      if (verifyFindingSlug) {
+        if (!detectedSlugs.has(verifyFindingSlug)) {
+          const verifyTarget = await db.finding.findFirst({
+            where: { assetId, slug: verifyFindingSlug, workspaceId: scan.workspaceId }
+          });
+          if (verifyTarget) {
+            // Only resolve if the scanner explicitly passed this check
+            if (result.passedChecks.includes(verifyTarget.slug)) {
+              await db.finding.update({
+                where: { id: verifyTarget.id },
+                data: { status: FindingStatus.RESOLVED }
+              });
+              await db.activityEvent.create({
+                data: {
+                  action: 'finding.resolved',
+                  description: `Finding verified and resolved: ${verifyTarget.title}`,
+                  workspaceId: scan.workspaceId,
+                  assetId,
+                  scanId,
+                  findingId: verifyTarget.id,
+                }
+              });
+            } else {
+              // Indeterminate! The scanner ran but didn't explicitly pass or fail this finding.
+              // Revert finding to OPEN if it was IN_PROGRESS.
+              if (verifyTarget.status === 'IN_PROGRESS') {
+                await db.finding.update({
+                  where: { id: verifyTarget.id },
+                  data: { status: FindingStatus.OPEN }
+                });
               }
-            });
-          } else {
-            // Indeterminate! The scanner ran but couldn't evaluate this category.
-            // Revert finding to OPEN.
-            await db.finding.update({
-              where: { id: verifyTarget.id },
-              data: { status: FindingStatus.OPEN }
-            });
-            await db.activityEvent.create({
-              data: {
-                action: 'finding.verification_failed',
-                description: `Verification indeterminate (check failed). Finding remains open: ${verifyTarget.title}`,
-                workspaceId: scan.workspaceId,
-                assetId,
-                scanId,
-                findingId: verifyTarget.id,
-              }
-            });
+              await db.activityEvent.create({
+                data: {
+                  action: 'finding.verification_failed',
+                  description: `Verification indeterminate (check was skipped or failed to run). Finding remains open: ${verifyTarget.title}`,
+                  workspaceId: scan.workspaceId,
+                  assetId,
+                  scanId,
+                  findingId: verifyTarget.id,
+                }
+              });
+            }
           }
         }
-      }
-    } else {
-      // Full scan - resolve OPEN/IN_PROGRESS findings not detected, BUT ONLY IF their category was evaluated.
-      const whereClause: any = {
-        assetId,
-        workspaceId: scan.workspaceId,
-        status: { in: [FindingStatus.OPEN, FindingStatus.IN_PROGRESS] },
-        slug: { notIn: Array.from(detectedSlugs) }
-      };
-
-      if (result.evaluatedCategories && result.evaluatedCategories.length > 0) {
-        whereClause.category = { in: result.evaluatedCategories };
-      }
-
-      const staleFindings = await db.finding.findMany({ where: whereClause });
-
-      for (const stale of staleFindings) {
-        await db.finding.update({
-          where: { id: stale.id },
-          data: { status: FindingStatus.RESOLVED }
+      } else {
+        // Full scan - resolve OPEN/IN_PROGRESS findings explicitly passed by the scanner.
+        const staleFindings = await db.finding.findMany({
+          where: {
+            assetId,
+            workspaceId: scan.workspaceId,
+            status: { in: [FindingStatus.OPEN, FindingStatus.IN_PROGRESS] },
+            slug: { in: result.passedChecks, notIn: Array.from(detectedSlugs) }
+          }
         });
+
+        for (const stale of staleFindings) {
+          await db.finding.update({
+            where: { id: stale.id },
+            data: { status: FindingStatus.RESOLVED }
+          });
+          await db.activityEvent.create({
+            data: {
+              action: 'finding.resolved',
+              description: `Finding resolved automatically by scan: ${stale.title}`,
+              workspaceId: scan.workspaceId,
+              assetId,
+              scanId,
+              findingId: stale.id,
+            }
+          });
+        }
+      }
+    } else if (verifyFindingSlug && !detectedSlugs.has(verifyFindingSlug)) {
+      // If there are no passedChecks at all but we are verifying a finding, and it wasn't detected:
+      // It's indeterminate.
+      const verifyTarget = await db.finding.findFirst({
+        where: { assetId, slug: verifyFindingSlug, workspaceId: scan.workspaceId }
+      });
+      if (verifyTarget) {
+        if (verifyTarget.status === 'IN_PROGRESS') {
+          await db.finding.update({
+            where: { id: verifyTarget.id },
+            data: { status: FindingStatus.OPEN }
+          });
+        }
         await db.activityEvent.create({
           data: {
-            action: 'finding.resolved',
-            description: `Finding resolved automatically by scan: ${stale.title}`,
+            action: 'finding.verification_failed',
+            description: `Verification indeterminate (no checks explicitly passed). Finding remains open: ${verifyTarget.title}`,
             workspaceId: scan.workspaceId,
             assetId,
             scanId,
-            findingId: stale.id,
+            findingId: verifyTarget.id,
           }
         });
       }
@@ -259,12 +289,33 @@ export const scanWorker = new Worker('scans', async (job: Job) => {
 
     throw error;
   }
-}, { connection });
+}, { 
+  connection,
+  concurrency: 5 
+});
 
 scanWorker.on('failed', async (job, err) => {
   log.error(`Job ${job?.id} failed with error: ${err.message}`);
-  // The try/catch in the processor handles the DB updates for failed jobs
-  // However, if the job stalled and failed outside the processor, we might need a fallback.
 });
 
-log.info('Scan Worker started');
+let isShuttingDown = false;
+
+async function gracefulShutdown(signal: string) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  log.info(`Received ${signal}, gracefully shutting down worker...`);
+  try {
+    await scanWorker.close(); // Waits for active jobs to finish
+    connection.disconnect();
+    log.info('Worker shutdown complete.');
+    process.exit(0);
+  } catch (err) {
+    log.error('Error during shutdown', { error: String(err) });
+    process.exit(1);
+  }
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+log.info('Scan Worker started with concurrency 5');

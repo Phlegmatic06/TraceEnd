@@ -4,6 +4,7 @@ import * as tls from 'tls';
 
 export function checkTlsSecurity(domain: string, cert: any) {
   const findings: ScannerFinding[] = [];
+  const passedChecks: string[] = [];
   const remediations = new Map<string, ScannerRemediationTemplate[]>();
 
   if (!cert) {
@@ -19,7 +20,9 @@ export function checkTlsSecurity(domain: string, cert: any) {
       potentialImpact: 'Connections to the site are not encrypted or are not trusted by browsers.',
       remediationSummary: 'Obtain and install a valid TLS certificate from a trusted Certificate Authority.',
     });
-    return { findings, remediations };
+    return { findings, passedChecks, remediations };
+  } else {
+    passedChecks.push('tls-missing');
   }
 
   const validTo = new Date(cert.valid_to);
@@ -51,6 +54,9 @@ export function checkTlsSecurity(domain: string, cert: any) {
       potentialImpact: 'If the certificate expires, visitors will see security warnings.',
       remediationSummary: 'Ensure automated renewal is working, or manually renew your certificate.',
     });
+    passedChecks.push('tls-expired');
+  } else {
+    passedChecks.push('tls-expired', 'tls-expiring');
   }
 
   // Check hostname mismatch
@@ -68,7 +74,9 @@ export function checkTlsSecurity(domain: string, cert: any) {
       potentialImpact: 'Visitors will be blocked from accessing your site. It looks like a phishing or misconfigured server.',
       remediationSummary: 'Install a certificate that includes your domain in the Subject Alternative Names (SAN).',
     });
+  } else {
+    passedChecks.push('tls-hostname-mismatch');
   }
   
-  return { findings, remediations };
+  return { findings, passedChecks, remediations };
 }

@@ -5,14 +5,17 @@ import * as net from 'net';
  * Validates that an IP address is a public address and not an internal/private/loopback/metadata IP.
  */
 export function isInternalIP(ip: string): boolean {
-  // Extract IPv4 from IPv4-mapped IPv6 (e.g. ::ffff:127.0.0.1 or ::ffff:7f00:1)
-  if (ip.startsWith('::ffff:')) {
-    const v4Part = ip.substring(7);
+  // Normalize IPv6 to lower case and expand if necessary for basic checks
+  const lowerIp = ip.toLowerCase();
+
+  // IPv4-mapped IPv6 addresses (e.g., ::ffff:127.0.0.1 or ::ffff:7f00:1)
+  if (lowerIp.startsWith('::ffff:')) {
+    const v4Part = lowerIp.substring(7);
     if (net.isIPv4(v4Part)) {
-      ip = v4Part;
+      ip = v4Part; // Let the IPv4 block handle it
     } else {
       // Hex representation like ::ffff:7f00:1
-      return true; // We can just block tricky mapped ones for safety or decode them, safer to just block if not standard mapped
+      return true; // Safer to block all tricky mapped ones
     }
   }
 
@@ -42,20 +45,41 @@ export function isInternalIP(ip: string): boolean {
 
     // IPv4 current network: 0.0.0.0/8
     if (parts[0] === 0) return true;
+    
+    // Multicast: 224.0.0.0/4
+    if (parts[0]! >= 224 && parts[0]! <= 239) return true;
   } else if (net.isIPv6(ip)) {
-    // Simplistic IPv6 SSRF block for loopback/link-local/unique-local
-    const lowerIp = ip.toLowerCase();
-    if (lowerIp === '::1' || lowerIp.startsWith('fc') || lowerIp.startsWith('fd') || lowerIp.startsWith('fe8') || lowerIp.startsWith('fe9') || lowerIp.startsWith('fea') || lowerIp.startsWith('feb')) {
-      return true;
-    }
-    // Block IPv4-mapped IPv6 prefix if not already caught
+    // Unspecified address (::)
+    if (lowerIp === '::' || lowerIp === '0:0:0:0:0:0:0:0') return true;
+
+    // Loopback (::1, 0:0:0:0:0:0:0:1)
+    if (lowerIp === '::1' || lowerIp === '0:0:0:0:0:0:0:1' || /^0(:0){6}:1$/.test(lowerIp) || lowerIp === '::0:1') return true;
+    
+    // Unique-local (fc00::/7) -> fc or fd
+    if (lowerIp.startsWith('fc') || lowerIp.startsWith('fd')) return true;
+    
+    // Link-local (fe80::/10) -> fe8, fe9, fea, feb
+    if (lowerIp.startsWith('fe8') || lowerIp.startsWith('fe9') || lowerIp.startsWith('fea') || lowerIp.startsWith('feb')) return true;
+    
+    // Multicast (ff00::/8) -> ff
+    if (lowerIp.startsWith('ff')) return true;
+
+    // Block any remaining IPv4-mapped forms just in case
     if (lowerIp.startsWith('::ffff:')) return true;
+    
+    // Discard prefix (IPv4 translated/mapped) 64:ff9b::/96
+    if (lowerIp.startsWith('64:ff9b::')) return true;
   }
 
   return false;
 }
 
 export async function validateTargetDomain(domain: string): Promise<string[]> {
+  // Strip IPv6 brackets if present
+  if (domain.startsWith('[') && domain.endsWith(']')) {
+    domain = domain.slice(1, -1);
+  }
+
   try {
     let addresses: string[] = [];
     

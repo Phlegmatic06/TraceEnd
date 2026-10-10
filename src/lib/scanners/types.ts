@@ -40,6 +40,7 @@ export interface ScannerRemediationTemplate {
 /** Result of a single scanner execution */
 export interface ScannerResult {
   findings: ScannerFinding[];
+  passedChecks?: string[]; // Array of finding slugs that explicitly passed
   remediations?: Map<string, ScannerRemediationTemplate[]>; // keyed by finding slug
   metadata?: Record<string, unknown>;
   evaluatedCategories?: FindingCategory[];
