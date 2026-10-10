@@ -12,6 +12,13 @@ const envSchema = z.object({
   AUTH_SECRET: z.string().optional(),
   GITHUB_ID: z.string().optional(),
   GITHUB_SECRET: z.string().optional(),
+  GITHUB_APP_ID: z.string().optional(),
+  GITHUB_APP_CLIENT_ID: z.string().optional(),
+  GITHUB_APP_CLIENT_SECRET: z.string().optional(),
+  INTEGRATION_ENCRYPTION_KEY: z.string().length(64, 'Encryption key must be 64 hex characters (32 bytes)').optional(),
+  SCANNER_MAX_FILE_SIZE: z.coerce.number().default(1 * 1024 * 1024), // 1MB
+  SCANNER_MAX_TOTAL_SIZE: z.coerce.number().default(100 * 1024 * 1024), // 100MB
+  SCANNER_MAX_FILES: z.coerce.number().default(10000),
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -43,26 +43,33 @@ export async function POST(
       data: { status: 'IN_PROGRESS' }
     });
 
+    let scanType: any = ScanType.DOMAIN_SECURITY;
+    let jobType = 'domain-security-baseline';
+
+    if (finding.asset.type === 'GITHUB_REPOSITORY') {
+      scanType = ScanType.GITHUB_SECRETS;
+      jobType = 'github-repository-scan';
+    }
+
     // Create a new scan focused on verifying this asset
     const scan = await db.scan.create({
       data: {
         workspaceId: workspace.id,
         assetId: finding.assetId,
         status: ScanStatus.QUEUED,
-        type: ScanType.DOMAIN_SECURITY,
+        type: scanType,
       },
     });
 
-    // We use the same scanner that found it, which currently is domain-security-baseline
     const scanJob = await db.scanJob.create({
       data: {
         scanId: scan.id,
-        jobType: 'domain-security-baseline',
+        jobType: jobType,
         status: ScanJobStatus.PENDING,
       },
     });
 
-    await addScanJob('domain-security-baseline', {
+    await addScanJob(jobType, {
       scanId: scan.id,
       scanJobId: scanJob.id,
       assetId: finding.assetId,

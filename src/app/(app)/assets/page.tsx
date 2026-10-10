@@ -5,6 +5,7 @@ import { ASSET_TYPE_CONFIG, VERIFICATION_STATUS_CONFIG } from '@/lib/types';
 import { db } from '@/lib/db';
 import { getDefaultWorkspace } from '@/lib/services/workspace';
 import { AddAssetButton } from '@/components/assets/add-asset-button';
+import { ImportGithubButton } from '@/components/assets/import-github-button';
 import {
   Mail, User, Globe, Monitor, GitFork, GitBranch, ImageIcon, FileText,
 } from 'lucide-react';
@@ -53,7 +54,12 @@ export default async function AssetsPage() {
       <Header
         title="Assets"
         description={`${assets.length} asset${assets.length !== 1 ? 's' : ''} monitored`}
-        actions={<AddAssetButton />}
+        actions={
+          <div className="flex items-center gap-2">
+            <ImportGithubButton />
+            <AddAssetButton />
+          </div>
+        }
       />
 
       <div className="p-6">

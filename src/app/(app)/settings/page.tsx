@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Header } from '@/components/layout';
 import { Badge } from '@/components/ui';
+import { GithubIntegration } from '@/components/settings/github-integration';
 
 export const metadata: Metadata = { title: 'Settings' };
 
@@ -25,12 +26,7 @@ export default function SettingsPage() {
 
         {/* Integrations */}
         <SettingsSection title="Integrations">
-          <div className="px-4 py-8 text-center">
-            <p className="text-sm text-gray-500 mb-1">No integrations configured</p>
-            <p className="text-xs text-gray-400">
-              GitHub, Slack, and webhook integrations will be available in a future release.
-            </p>
-          </div>
+          <GithubIntegration />
         </SettingsSection>
 
         {/* Notifications */}
