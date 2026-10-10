@@ -3,7 +3,7 @@ import { db } from '@/lib/db';
 import { getDefaultWorkspace } from '@/lib/services/workspace';
 import { toErrorResponse } from '@/lib/errors';
 import { logger } from '@/lib/logger';
-import { getScanQueue } from '@/lib/queue';
+import { addScanJob } from '@/lib/queue';
 import { ScanStatus, ScanJobStatus, ScanType } from '@/generated/prisma/client';
 
 const log = logger.child({ module: 'api/assets/scan' });
@@ -61,8 +61,7 @@ export async function POST(
     });
 
     // Enqueue job
-    const scanQueue = getScanQueue();
-    await scanQueue.add('domain-security-baseline', {
+    await addScanJob('domain-security-baseline', {
       scanId: scan.id,
       scanJobId: scanJob.id,
       assetId: asset.id,

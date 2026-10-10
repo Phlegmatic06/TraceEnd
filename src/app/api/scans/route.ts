@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getDefaultWorkspace } from '@/lib/services/workspace';
-import { getScanQueue } from '@/lib/queue';
+import { addScanJob } from '@/lib/queue';
 import { logger } from '@/lib/logger';
 import { ScanType, ScanStatus, ScanJobStatus } from '@/generated/prisma/client';
 import { scannerRegistry } from '@/lib/scanners';
@@ -55,9 +55,9 @@ export async function POST(request: NextRequest) {
       });
 
       // Add to BullMQ
-      const scanQueue = getScanQueue();
-      await scanQueue.add(scanner.id, {
+      await addScanJob(scanner.id, {
         scanId: scan.id,
+
         scanJobId: scanJob.id,
         assetId: asset.id,
         assetIdentifier: asset.identifier,

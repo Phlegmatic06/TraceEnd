@@ -4,7 +4,7 @@ import { getDefaultWorkspace } from '@/lib/services/workspace';
 import { validateFindingTransition } from '@/lib/services/state-machine';
 import { toErrorResponse } from '@/lib/errors';
 import { logger } from '@/lib/logger';
-import { getScanQueue } from '@/lib/queue';
+import { addScanJob } from '@/lib/queue';
 import { ScanStatus, ScanJobStatus, ScanType } from '@/generated/prisma/client';
 
 const log = logger.child({ module: 'api/findings/verify' });
@@ -62,8 +62,7 @@ export async function POST(
       },
     });
 
-    const scanQueue = getScanQueue();
-    await scanQueue.add('domain-security-baseline', {
+    await addScanJob('domain-security-baseline', {
       scanId: scan.id,
       scanJobId: scanJob.id,
       assetId: finding.assetId,
